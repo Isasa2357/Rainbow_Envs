@@ -6,7 +6,7 @@ import torch
 
 import gymnasium as gym
 
-from ReplayBuffer.Buffer import NstepSampleMaker
+from ReplayBuffer.Buffer import NstepSampleMaker, NstepReplayBuffer
 from usefulParam.Param import makeConstant
 
 def main():
@@ -17,9 +17,10 @@ def main():
     action_kinds = 4
 
     maker = NstepSampleMaker(3, makeConstant(0.99), state_size, action_size)
+    buf = NstepReplayBuffer(20000, 7, makeConstant(0.99), state_size, action_size)
 
     episodes = 2
-    for episode in tqdm(range(episodes)):
+    for episode in tqdm(range(episodes), position=0):
         state, _ = env.reset()
         done = False
         total_reward = 0.0
@@ -34,21 +35,22 @@ def main():
             done = np.array(truncated or terminated, dtype=np.int8)
 
             # エージェントを更新
-            state = torch.tensor(state)
-            action = torch.tensor(action)
-            reward = torch.tensor(reward)
-            next_state = torch.tensor(next_state)
-            done = torch.tensor(done)
-            print(done)
-            maker.add(state, action, reward, next_state, done)
-            if (maker.can_makeSample()):
-                pass
-                ret = maker.get_sample()
-                print(ret)
+            buf.add(state, action, reward, next_state, done)
 
             # 後処理
             total_reward += reward
             state = next_state
+
+            if buf.real_size >= 2:
+                status, actions, rewrads, next_status, dones = buf.get_sample(2)
+                print(f'status: {status}')
+                print(f'action: {actions}')
+                print(f'reward: {rewrads}')
+                print(f'n state: {next_status}')
+                print(f'done: {dones}')
+                print()
+        
+        # tqdm.write(f"episode: {episode}, reward: {total_reward}")
 
 if __name__ == '__main__':
     main()
