@@ -3,10 +3,11 @@
 '''
 
 from copy import copy, deepcopy
-from typing import List
+from typing import List, Type
 
 import torch
-from torch import nn
+from torch import nn, optim
+from torch.nn import Module
 
 ############################## 文字列 → nnモジュール 変換 ##############################
 
@@ -25,8 +26,6 @@ def conv_str2ActivationFunc(module_str: str) -> nn.Module:
         return mapping[module_str]
     else:
         raise ValueError(f"Unknown activation function: {module_str}")
-
-from torch import nn
 
 def conv_str2LayerFunc(layer_str: str, **kwargs) -> nn.Module:
     '''
@@ -61,10 +60,46 @@ def conv_str2LayerFunc(layer_str: str, **kwargs) -> nn.Module:
     layer_class = layer_map[layer_str]
     return layer_class(**kwargs)
 
-import torch
-from torch import optim
-from torch.nn import Module
-from typing import Type
+import torch.nn as nn
+
+def conv_str2LossFunc(loss_str: str, **kwargs) -> nn.Module:
+    '''
+    文字列からPyTorchの損失関数（nn.Module）を生成する。
+
+    Args:
+        loss_str: 損失関数名（例: 'MSELoss', 'CrossEntropyLoss', 'L1Loss' など）
+        kwargs: 該当損失関数の引数（例: reduction='mean' など）
+
+    Returns:
+        nn.Module: 対応するPyTorch損失関数のインスタンス
+
+    Raises:
+        ValueError: 未定義の損失関数名が指定された場合
+    '''
+    loss_map = {
+        'MSELoss': nn.MSELoss,
+        'CrossEntropyLoss': nn.CrossEntropyLoss,
+        'L1Loss': nn.L1Loss,
+        'NLLLoss': nn.NLLLoss,
+        'BCELoss': nn.BCELoss,
+        'BCEWithLogitsLoss': nn.BCEWithLogitsLoss,
+        'SmoothL1Loss': nn.SmoothL1Loss,
+        'HuberLoss': nn.HuberLoss,
+        'KLDivLoss': nn.KLDivLoss,
+        'PoissonNLLLoss': nn.PoissonNLLLoss,
+        'CTCLoss': nn.CTCLoss,
+        'CosineEmbeddingLoss': nn.CosineEmbeddingLoss,
+        'MarginRankingLoss': nn.MarginRankingLoss,
+        'MultiMarginLoss': nn.MultiMarginLoss,
+        'TripletMarginLoss': nn.TripletMarginLoss,
+    }
+
+    if loss_str not in loss_map:
+        raise ValueError(f"Unknown loss function: {loss_str}")
+
+    loss_class = loss_map[loss_str]
+    return loss_class(**kwargs)
+
 
 def conv_str2Optimizer(optimizer_str: str, params, **kwargs) -> optim.Optimizer:
     '''

@@ -191,7 +191,7 @@ class ReplayBuffer(ReplayBufferInterface):
                          state_size, action_size, reward_size, done_size, 
                          state_type, action_type, reward_type, done_type, 
                          device)
-        pass
+        self._write_idx = 0
 
     def add(self, state: ndarray, action: ndarray, reward: ndarray, next_state: ndarray, done: ndarray) -> None:
         '''

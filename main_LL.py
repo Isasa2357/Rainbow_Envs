@@ -1,13 +1,15 @@
 
 import numpy as np
 from tqdm import tqdm
+from matplotlib import pyplot as plt
 
 import torch
 
 import gymnasium as gym
 
-from ReplayBuffer.Buffer import NstepSampleMaker, NstepReplayBuffer
+from ReplayBuffer.Buffer import NstepSampleMaker, NstepReplayBuffer, ReplayBuffer
 from usefulParam.Param import makeConstant
+from DQN.Rainbow import RainbowAgent
 
 def main():
     env = gym.make("LunarLander-v3")
@@ -16,10 +18,15 @@ def main():
     action_size = 1
     action_kinds = 4
 
-    maker = NstepSampleMaker(3, makeConstant(0.99), state_size, action_size)
-    buf = NstepReplayBuffer(20000, 7, makeConstant(0.99), state_size, action_size)
+    device = device=torch.device('cpu')
+    replayBuf = ReplayBuffer(20000, state_size, action_size, action_type=torch.int, device=device)
+    agent = RainbowAgent(makeConstant(0.99, device), makeConstant(0.005, device), 
+                         state_size, action_size, action_kinds, 
+                         (64, 64, 64), 0.5, "MSELoss", "Adam", 
+                         replayBuf, 32, device)
 
-    episodes = 2
+    reward_history = list()
+    episodes = 1000
     for episode in tqdm(range(episodes), position=0):
         state, _ = env.reset()
         done = False
@@ -27,7 +34,9 @@ def main():
 
         while not done:
             # アクションを選択
-            action = np.random.choice(range(action_kinds), 1)
+            state_tensor = torch.tensor(state, dtype=torch.float, device=device).unsqueeze(0)
+            action = agent.get_action(state_tensor)
+            action = action.cpu().detach().numpy()
 
             # 環境を進める
             next_state, reward, terminated, truncated, _ = env.step(action.item())
@@ -35,21 +44,20 @@ def main():
             done = np.array(truncated or terminated, dtype=np.int8)
 
             # エージェントを更新
-            buf.add(state, action, reward, next_state, done)
+            agent.update(state, action, reward, next_state, done)
 
             # 後処理
             total_reward += reward
             state = next_state
+        
+        agent.noise_reset()
+        
+        reward_history.append(total_reward)
+        tqdm.write(f"episode: {episode}, reward: {total_reward}")
 
-            if buf.real_size >= 2:
-                status, actions, rewrads, next_status, dones = buf.get_sample(2)
-                print(f'status: {status}')
-                print(f'action: {actions}')
-                print(f'reward: {rewrads}')
-                print(f'n state: {next_status}')
-                print(f'done: {dones}')
-                print()
-        # tqdm.write(f"episode: {episode}, reward: {total_reward}")
+    plt.plot(reward_history)
+    plt.show()
+
 
 if __name__ == '__main__':
-    
+    main()

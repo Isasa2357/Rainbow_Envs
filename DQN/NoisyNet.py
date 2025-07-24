@@ -18,10 +18,10 @@ class NoisyNetInterface(nn.Module):
         super().__init__()
 
     def noise_reset(self):
-        raise NotImplementedError(f'{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}は未実装')
+        raise NotImplementedError(f'{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}は未実装') # type: ignore
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError(f'{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}は未実装')
+        raise NotImplementedError(f'{self.__class__.__name__}.{inspect.currentframe().f_code.co_name}は未実装') # type: ignore
 
 
 class NoisyNet(NoisyNetInterface):
