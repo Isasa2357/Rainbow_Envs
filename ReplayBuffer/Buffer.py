@@ -561,4 +561,3 @@ class NstepReplayBuffer(BaseNstepReplayBuffer):
         extract_dones = self._dones[indices]
 
         return extract_status, extract_actions, extract_rewards, extract_next_status, extract_dones
-        

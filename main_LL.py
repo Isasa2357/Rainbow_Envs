@@ -49,8 +49,7 @@ def main():
                 print(f'n state: {next_status}')
                 print(f'done: {dones}')
                 print()
-        
         # tqdm.write(f"episode: {episode}, reward: {total_reward}")
 
 if __name__ == '__main__':
-    main()
+    
