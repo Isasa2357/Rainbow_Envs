@@ -13,21 +13,41 @@ from DQN.Rainbow import RainbowAgent
 
 def main():
     env = gym.make("LunarLander-v3")
+    # env = gym.make("CartPole-v1")
 
     state_size = 8
     action_size = 1
     action_kinds = 4
 
     device = device=torch.device('cpu')
-    replayBuf = ReplayBuffer(20000, state_size, action_size, action_type=torch.int, device=device)
-    agent = RainbowAgent(makeConstant(0.99, device), makeConstant(0.005, device), 
+    replayBuf = ReplayBuffer(1000000, state_size, action_size, action_type=torch.int, device=device)
+    agent = RainbowAgent(makeConstant(0.99, device), makeConstant(0.001, device), makeConstant(0.05), 
                          state_size, action_size, action_kinds, 
-                         (64, 64, 64), 0.5, "MSELoss", "Adam", 
-                         replayBuf, 32, device)
+                         (64, 64, 64), 0.5, "MSELoss", "Adam", 1, 
+                         replayBuf, 64, device)
+    
+    # あらかじめ適当な量バッファを埋めておく
+    bufinit_episodes = 5000
+    for episode in tqdm(range(bufinit_episodes)):
+        state, _ = env.reset()
+        done = False
+        total_reward = 0.0
+
+        while not done:
+            action = np.random.choice(range(action_kinds))
+            next_state, reward, terminated, truncated, _ = env.step(action.item())
+            reward = np.array(reward, dtype=np.float32)
+            done = np.array(truncated or terminated, dtype=np.int8)
+
+            agent.add_buffer(state, action, reward, next_state, done)
+
+            state = next_state
 
     reward_history = list()
-    episodes = 1000
-    for episode in tqdm(range(episodes), position=0):
+    episodes = 3000000000000
+    # episodes = 30
+    over_200_count = 0
+    for episode in tqdm(range(episodes), position=0, ncols=100):
         state, _ = env.reset()
         done = False
         total_reward = 0.0
@@ -52,8 +72,17 @@ def main():
         
         agent.noise_reset()
         
-        reward_history.append(total_reward)
+        reward_history.append(total_reward if total_reward > -2000.0 else -2000.0)
         tqdm.write(f"episode: {episode}, reward: {total_reward}")
+
+        if total_reward >= 200:
+            over_200_count += 1
+        else:
+            over_200_count = 0
+        
+        if over_200_count >= 100:
+            print("clear")
+            break
 
     plt.plot(reward_history)
     plt.show()
