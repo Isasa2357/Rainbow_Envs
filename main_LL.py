@@ -19,15 +19,15 @@ def main():
     action_size = 1
     action_kinds = 4
 
-    device = device=torch.device('cpu')
-    replayBuf = ReplayBuffer(1000000, state_size, action_size, action_type=torch.int, device=device)
-    agent = RainbowAgent(makeConstant(0.99, device), makeConstant(0.001, device), makeConstant(0.05), 
+    device =torch.device('cpu')
+    replayBuf = ReplayBuffer(20000, state_size, action_size, action_type=torch.int, device=device)
+    agent = RainbowAgent(makeConstant(0.99, device), makeConstant(1e-4, device), makeConstant(5e-3, device), 
                          state_size, action_size, action_kinds, 
-                         (64, 64, 64), 0.5, "MSELoss", "Adam", 1, 
+                         (64, 64, 64), 0.3, "MSELoss", "Adam", 1, 
                          replayBuf, 64, device)
     
     # あらかじめ適当な量バッファを埋めておく
-    bufinit_episodes = 5000
+    bufinit_episodes = 100
     for episode in tqdm(range(bufinit_episodes)):
         state, _ = env.reset()
         done = False
@@ -43,6 +43,8 @@ def main():
 
             state = next_state
 
+            agent.noise_reset()
+
     reward_history = list()
     episodes = 3000000000000
     # episodes = 30
@@ -51,12 +53,15 @@ def main():
         state, _ = env.reset()
         done = False
         total_reward = 0.0
+        action_history = [0] * action_kinds
 
         while not done:
             # アクションを選択
             state_tensor = torch.tensor(state, dtype=torch.float, device=device).unsqueeze(0)
             action = agent.get_action(state_tensor)
             action = action.cpu().detach().numpy()
+
+            action_history[int(action.item())] += 1
 
             # 環境を進める
             next_state, reward, terminated, truncated, _ = env.step(action.item())
@@ -70,10 +75,9 @@ def main():
             total_reward += reward
             state = next_state
         
-        agent.noise_reset()
-        
         reward_history.append(total_reward if total_reward > -2000.0 else -2000.0)
         tqdm.write(f"episode: {episode}, reward: {total_reward}")
+        tqdm.write(f'action history: {action_history}')
 
         if total_reward >= 200:
             over_200_count += 1

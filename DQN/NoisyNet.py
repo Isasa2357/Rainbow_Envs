@@ -12,8 +12,9 @@ import inspect
 
 from mutil_RL.mutil_torch import factory_LinearReLU_Sequential
 from mtorch.NoisyLinear import factory_NoisyLiearReLU_Sequential, NoisyLinear
+from DQN.Qnet import BaseQnetwork
 
-class NoisyNetInterface(nn.Module):
+class NoisyNetInterface(nn.Module, BaseQnetwork):
     def __init__(self):
         super().__init__()
 
@@ -83,8 +84,8 @@ class DuelingNoisyNet(NoisyNetInterface):
         
         base = self._base_layer.forward(x)
         advantage = self._advantage_layer.forward(x)
-        
-        return base + advantage - torch.mean(advantage, dim=1)
+
+        return base + advantage - torch.mean(advantage, dim=1, keepdim=True)
 
 ############################## テスト ##############################
 

@@ -7,7 +7,14 @@ from torch import nn
 
 from mutil_RL.mutil_torch import factory_LinearReLU_Sequential
 
-class Qnetwork(nn.Module):
+class BaseQnetwork(nn.Module):
+    '''
+    作成したQ networkが共通して持つ属性
+    '''
+    def __init__(self):
+        super().__init__()
+
+class Qnetwork(BaseQnetwork):
     def __init__(self, in_chnls: int, hdn_chnls: Tuple[int, ...], out_chnls: int):
         super().__init__()
         
@@ -15,6 +22,3 @@ class Qnetwork(nn.Module):
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self._network.forward(x)
-    
-    def noise_reset(self):
-        pass

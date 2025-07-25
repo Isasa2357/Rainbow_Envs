@@ -7,8 +7,8 @@ from typing import Tuple
 import numpy as np
 from numpy import ndarray
 
-from DQN.NoisyNet import NoisyNet
-from DQN.Qnet import Qnetwork
+from DQN.NoisyNet import NoisyNet, DuelingNoisyNet, NoisyNetInterface
+from DQN.Qnet import Qnetwork, BaseQnetwork
 from ReplayBuffer.Buffer import ReplayBuffer
 from usefulParam.Param import ScalarParam
 from mutil_RL.mutil_torch import conv_str2Optimizer, conv_str2LossFunc, soft_update
@@ -26,7 +26,8 @@ class RainbowAgent:
                  lossF: str, optimizer: str,                                                        # q net learn function
                  sync_interval: int, 
                  replayBuf: ReplayBuffer, batch_size: int,                  # replay buffer
-                 device: torch.device=torch.device('cpu')):
+                 device: torch.device=torch.device('cpu'), 
+                 noisy: bool=True, dueling: bool=True):
         self._device = device
 
         # Hyper Parameter
@@ -39,11 +40,22 @@ class RainbowAgent:
         self._action_size = action_size
         self._action_kinds = action_kinds
 
-        # main q net
-        self._q_net = NoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
-        self._target_q_net = NoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
-        # self._q_net = Qnetwork(state_size, hdn_chnls, action_kinds).to(self._device)
-        # self._target_q_net = Qnetwork(state_size, hdn_chnls, action_kinds).to(self._device)
+        ### main q net
+        self._q_net: BaseQnetwork
+        self._target_q_net: BaseQnetwork
+        if noisy and dueling:
+            self._q_net = DuelingNoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
+            self._target_q_net = DuelingNoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
+        elif noisy and not dueling:
+            self._q_net = NoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
+            self._target_q_net = NoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
+        elif not noisy and dueling:
+            pass
+        else:       # not noisy and not dueling
+            self._q_net = Qnetwork(state_size, hdn_chnls, action_kinds).to(self._device)
+            self._target_q_net = Qnetwork(state_size, hdn_chnls, action_kinds).to(self._device)
+
+        self._target_q_net.load_state_dict(self._q_net.state_dict())
 
         self._q_net_lossF = conv_str2LossFunc(lossF, reduction='mean')
         self._q_net_optimizer = conv_str2Optimizer(optimizer, self._q_net.parameters(), lr=self._lr.value)
@@ -94,6 +106,8 @@ class RainbowAgent:
 
         # ネットワークの更新
         self.learn_q_net()
+
+        self.noise_reset()
     
     def add_buffer(self, state: ndarray, action: ndarray, reward: ndarray, next_state: ndarray, done: ndarray):
         self._replayBuf.add(state, action, reward, next_state, done)
@@ -113,7 +127,7 @@ class RainbowAgent:
         with torch.no_grad():
             self._q_net.eval()
             self._target_q_net.eval()
-            next_actions = self._q_net.forward(next_status).to(dtype=torch.int).argmax(dim=1)
+            next_actions = self._q_net.forward(next_status).argmax(dim=1)
             q_val_target = rewards + (1 - dones) * self._gamma.tensor_value * self._target_q_net.forward(next_status)[np.arange(len(next_actions)), next_actions].unsqueeze(1)
 
         # ネットワークを更新
@@ -131,5 +145,7 @@ class RainbowAgent:
         self._q_net_loss_history.append(loss.item())
     
     def noise_reset(self):
-        self._q_net.noise_reset()
-        self._target_q_net.noise_reset()
+        if isinstance(self._q_net, NoisyNetInterface):
+            self._q_net.noise_reset()
+        if isinstance(self._target_q_net, NoisyNetInterface):
+            self._target_q_net.noise_reset()
