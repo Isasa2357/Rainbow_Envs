@@ -18,7 +18,10 @@ class Qnetwork(BaseQnetwork):
     def __init__(self, in_chnls: int, hdn_chnls: Tuple[int, ...], out_chnls: int):
         super().__init__()
         
-        self._network = factory_LinearReLU_Sequential(in_chnls, 64, 3, out_chnls)
+        self._network = factory_LinearReLU_Sequential(in_chnls, hdn_chnls, out_chnls)
     
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self._network.forward(x)
+    
+# class DuelingQnetwork(BaseQnetwork):
+#     def __init__(self, in_chnls)

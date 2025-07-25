@@ -7,24 +7,27 @@ import torch
 
 import gymnasium as gym
 
-from ReplayBuffer.Buffer import NstepSampleMaker, NstepReplayBuffer, ReplayBuffer
-from usefulParam.Param import makeConstant
+# from ReplayBuffer.Buffer import NstepSampleMaker, NstepReplayBuffer, ReplayBuffer
+from ReplayBuffer.Buffer_v2 import ReplayBuffer, NstepReplayBuffer
+from usefulParam.Param import makeConstant, makeMultiply
 from DQN.Rainbow import RainbowAgent
+from mutil_RL.mutil_gym import get_env_info
 
 def main():
     env = gym.make("LunarLander-v3")
     # env = gym.make("CartPole-v1")
 
-    state_size = 8
-    action_size = 1
-    action_kinds = 4
+    state_size, action_kinds, action_size, clearScoreThreshold = get_env_info(env)
 
     device =torch.device('cpu')
-    replayBuf = ReplayBuffer(20000, state_size, action_size, action_type=torch.int, device=device)
+    # replayBuf = ReplayBuffer(20000, state_size, action_size, action_type=torch.int, device=device)
+    replayBuf = NstepReplayBuffer(20000, 3, makeConstant(0.99, device), state_size, action_size, action_type=torch.int, device=device)
     agent = RainbowAgent(makeConstant(0.99, device), makeConstant(1e-4, device), makeConstant(5e-3, device), 
                          state_size, action_size, action_kinds, 
-                         (64, 64, 64), 0.3, "MSELoss", "Adam", 1, 
-                         replayBuf, 64, device)
+                         (64, 64, 64), "MSELoss", "Adam", 1, 
+                         replayBuf, 64, device, 
+                         noisy=True, sigma_init=0.3, epsilon=makeMultiply(1.0, 0.995, 1e-4, 1.0, device), 
+                         dueling=True)
     
     # あらかじめ適当な量バッファを埋めておく
     bufinit_episodes = 100
@@ -48,7 +51,7 @@ def main():
     reward_history = list()
     episodes = 3000000000000
     # episodes = 30
-    over_200_count = 0
+    clear_count = 0
     for episode in tqdm(range(episodes), position=0, ncols=100):
         state, _ = env.reset()
         done = False
@@ -75,16 +78,19 @@ def main():
             total_reward += reward
             state = next_state
         
-        reward_history.append(total_reward if total_reward > -2000.0 else -2000.0)
-        tqdm.write(f"episode: {episode}, reward: {total_reward}")
-        tqdm.write(f'action history: {action_history}')
+        agent.param_step()
+        reward_history.append(total_reward)
 
-        if total_reward >= 200:
-            over_200_count += 1
+        if total_reward >= clearScoreThreshold:
+            clear_count += 1
         else:
-            over_200_count = 0
+            clear_count = 0
         
-        if over_200_count >= 100:
+        tqdm.write(f"episode: {episode}, reward: {total_reward}")
+        tqdm.write(f'連続クリアカウント: {clear_count}')
+        tqdm.write(f'action history: {action_history}')
+        
+        if clear_count >= 100:
             print("clear")
             break
 

@@ -40,7 +40,7 @@ class MultiplyScheduler(BaseScheduler):
 
     def forward(self, val: torch.Tensor) -> torch.Tensor:
         new_val = val * self._multiply
-        new_val = torch.min(new_val, self.min)
+        new_val = torch.min(new_val, self.max)
         new_val = torch.max(new_val, self.min)
         return new_val
     

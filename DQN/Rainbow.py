@@ -9,8 +9,9 @@ from numpy import ndarray
 
 from DQN.NoisyNet import NoisyNet, DuelingNoisyNet, NoisyNetInterface
 from DQN.Qnet import Qnetwork, BaseQnetwork
-from ReplayBuffer.Buffer import ReplayBuffer
-from usefulParam.Param import ScalarParam
+# from ReplayBuffer.Buffer import ReplayBuffer
+from ReplayBuffer.Buffer_v2 import BaseReplayBuffer
+from usefulParam.Param import ScalarParam, makeConstant, makeMultiply
 from mutil_RL.mutil_torch import conv_str2Optimizer, conv_str2LossFunc, soft_update
 
 
@@ -22,18 +23,23 @@ class RainbowAgent:
     def __init__(self, 
                  gamma: ScalarParam, lr: ScalarParam, tau: ScalarParam,                       # hyper param
                  state_size: int, action_size: int, action_kinds: int,      # task info
-                 hdn_chnls: Tuple[int, ...], sigma_init: float, # q net
-                 lossF: str, optimizer: str,                                                        # q net learn function
-                 sync_interval: int, 
-                 replayBuf: ReplayBuffer, batch_size: int,                  # replay buffer
+                 hdn_chnls: Tuple[int, ...],  # q net
+                 lossF: str, optimizer: str, sync_interval: int,                                                  # q net learn function
+                 replayBuf: BaseReplayBuffer, batch_size: int,                  # replay buffer
                  device: torch.device=torch.device('cpu'), 
-                 noisy: bool=True, dueling: bool=True):
+                 noisy: bool=True, sigma_init: float=0.5, epsilon: ScalarParam=makeMultiply(1.0, 0.998, 1e-4, 1.0, torch.device('cpu')), 
+                 dueling: bool=True, ):
         self._device = device
+
+        # condition
+        self._noisy = noisy
+        self._dueling = dueling
 
         # Hyper Parameter
         self._gamma = gamma
         self._lr = lr
         self._tau = tau
+        self._epsilon = epsilon
 
         # task info
         self._state_size = state_size
@@ -44,14 +50,18 @@ class RainbowAgent:
         self._q_net: BaseQnetwork
         self._target_q_net: BaseQnetwork
         if noisy and dueling:
+            print("noisy and dueling")
             self._q_net = DuelingNoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
             self._target_q_net = DuelingNoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
         elif noisy and not dueling:
+            print('noisy and not dueling')
             self._q_net = NoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
             self._target_q_net = NoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
         elif not noisy and dueling:
+            print('not noiosy and dueling')
             pass
         else:       # not noisy and not dueling
+            print('not noisy and not dueling')
             self._q_net = Qnetwork(state_size, hdn_chnls, action_kinds).to(self._device)
             self._target_q_net = Qnetwork(state_size, hdn_chnls, action_kinds).to(self._device)
 
@@ -82,8 +92,8 @@ class RainbowAgent:
             action[batch, action_size]: 行動
         '''
 
-        if type(self._q_net) == Qnetwork:
-            if np.random.random() < 0.1:
+        if not self._noisy:
+            if np.random.random() < self._epsilon.value:
                 return torch.tensor(np.random.choice(range(self._action_kinds)))
 
         q_val = self._q_net.forward(status)
@@ -107,8 +117,9 @@ class RainbowAgent:
         # ネットワークの更新
         self.learn_q_net()
 
-        self.noise_reset()
-    
+        if isinstance(self._q_net, NoisyNetInterface) and isinstance(self._target_q_net, NoisyNetInterface):
+            self.noise_reset()
+        
     def add_buffer(self, state: ndarray, action: ndarray, reward: ndarray, next_state: ndarray, done: ndarray):
         self._replayBuf.add(state, action, reward, next_state, done)
     
@@ -145,7 +156,18 @@ class RainbowAgent:
         self._q_net_loss_history.append(loss.item())
     
     def noise_reset(self):
-        if isinstance(self._q_net, NoisyNetInterface):
+        '''
+        ノイズのリセット
+        q_netがNoisyでなければ何もしない
+        '''
+        if isinstance(self._q_net, NoisyNetInterface) and isinstance(self._target_q_net, NoisyNetInterface):
             self._q_net.noise_reset()
-        if isinstance(self._target_q_net, NoisyNetInterface):
             self._target_q_net.noise_reset()
+        else:
+            raise RuntimeError(f"q netがNoisy系でないのに，noise resetが呼ばれた")
+        
+    def param_step(self):
+        self._gamma.step()
+        self._lr.step()
+        self._tau.step()
+        self._epsilon.step()

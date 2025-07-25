@@ -14,7 +14,7 @@ from mutil_RL.mutil_torch import factory_LinearReLU_Sequential
 from mtorch.NoisyLinear import factory_NoisyLiearReLU_Sequential, NoisyLinear
 from DQN.Qnet import BaseQnetwork
 
-class NoisyNetInterface(nn.Module, BaseQnetwork):
+class NoisyNetInterface(BaseQnetwork):
     def __init__(self):
         super().__init__()
 

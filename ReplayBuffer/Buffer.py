@@ -561,3 +561,32 @@ class NstepReplayBuffer(BaseNstepReplayBuffer):
         extract_dones = self._dones[indices]
 
         return extract_status, extract_actions, extract_rewards, extract_next_status, extract_dones
+
+############################## テスト##############################
+
+from usefulParam.Param import ScalarParam, makeConstant
+def test_NstepReplayBuffer():
+    buf = NstepReplayBuffer(2000, 3, makeConstant(0.99), 4, 1)
+
+    episodes = 20
+    for episode in range(episodes):
+        state_count = 0
+        for i in range(200):
+            state = np.array([state_count] * 4)
+            action = np.random.choice(range(4))
+            reward = np.array(state_count)
+            next_state = np.array([state_count + 1] * 4)
+            done = np.array(True if i == 199 else False)
+            buf.add(state, action, reward, next_state, done)
+
+            state_count += 1
+
+            if buf.real_size >= 2:
+                sample = buf.get_sample(2)
+                status, actions, rewards, next_status, dones = sample
+                print(f'state: {status}')
+                print(f'action: {actions}')
+                print(f'reward: {rewards}')
+                print(F'next state: {next_status}')
+                print(f'done: {dones}')
+    

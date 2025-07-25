@@ -3,7 +3,7 @@
 '''
 
 from copy import copy, deepcopy
-from typing import List, Type
+from typing import List, Type, Tuple
 
 import torch
 from torch import nn, optim
@@ -134,7 +134,7 @@ def conv_str2Optimizer(optimizer_str: str, params, **kwargs) -> optim.Optimizer:
 
 ############################## ネットワーク ファクトリ ##############################
 
-def factory_LinearReLU_ModuleList(in_chnls: int, hdn_chnls: int, hdn_layers: int, out_chnls: int ,out_act: str="") -> nn.ModuleList:
+def factory_LinearReLU_ModuleList(in_chnls: int, hdn_chnls: Tuple[int, ...], out_chnls: int ,out_act: str="") -> nn.ModuleList:
     '''
         LinearとReLUが積み重なったネットワークを作成
         最終層はカスタム可能
@@ -148,24 +148,19 @@ def factory_LinearReLU_ModuleList(in_chnls: int, hdn_chnls: int, hdn_layers: int
     '''
     layers = nn.ModuleList()
 
-    # 入力層
-    layers.append(nn.Linear(in_chnls, hdn_chnls))
-    layers.append(nn.ReLU())
+    chnls = tuple([in_chnls]) + hdn_chnls + tuple([out_chnls])
 
-
-    # 隠れ層
-    for _ in range(hdn_layers):
-        layers.append(nn.Linear(hdn_chnls, hdn_chnls))
-        layers.append(nn.ReLU())
-
-    # 出力層
-    layers.append(nn.Linear(hdn_chnls, out_chnls))
+    for i in range(len(chnls) - 1):
+        layers.append(nn.Linear(chnls[i], chnls[i + 1]))
+        if i != len(chnls) - 2:
+            layers.append(nn.ReLU())
+    
     if out_act != "":
         layers.append(conv_str2ActivationFunc(out_act))
 
     return layers
 
-def factory_LinearReLU_Sequential(in_chnls: int, hdn_chnls: int, hdn_layers: int, out_chnls: int ,out_act: str="") -> nn.Sequential:
+def factory_LinearReLU_Sequential(in_chnls: int, hdn_chnls: Tuple[int, ...], out_chnls: int ,out_act: str="") -> nn.Sequential:
     '''
         LinearとReLUが積み重なったネットワークを作成
         最終層はカスタム可能
@@ -177,7 +172,7 @@ def factory_LinearReLU_Sequential(in_chnls: int, hdn_chnls: int, hdn_layers: int
             out_chnls: 出力層のチャネル数
             out_module: 最終層の指定
     '''
-    sequential = nn.Sequential(*factory_LinearReLU_ModuleList(in_chnls, hdn_chnls, hdn_layers, out_chnls, out_act))
+    sequential = nn.Sequential(*factory_LinearReLU_ModuleList(in_chnls, hdn_chnls, out_chnls, out_act))
     return sequential
 
 ############################## ネットワーク パラメータ更新 ##############################
@@ -188,3 +183,5 @@ def hard_update(source: nn.Module, target: nn.Module):
 def soft_update(source: nn.Module, target: nn.Module, tau: float):
     for target_param, source_param in zip(target.parameters(), source.parameters()):
         target_param.data.copy_(tau * source_param.data + (1.0 - tau) * target_param.data)
+
+############################## テスト ##############################
