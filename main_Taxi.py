@@ -4,6 +4,7 @@ from typing import Tuple
 import numpy as np
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+from collections import deque
 
 import torch
 from torch.nn import functional as F
@@ -81,16 +82,16 @@ def main():
     print(state_size, action_size, action_kinds, clearScoreThreshold)
 
     gamma = makeConstant(0.99)
-    lr = makeConstant(5e-4)
-    tau = makeConstant(5e-3)
+    lr = makeConstant(1e-3)
+    tau = makeConstant(1e-2)
     device = torch.device('cpu')
     n_step = 1
     replayBuf = ReplayBuffer(50000, 19, action_size, action_type=torch.int, device=device)
     agent = RainbowAgent(gamma, lr, tau, 
                          19, action_size, action_kinds, 
-                         (128, 128, 128, 128), "MSELoss", "Adam", 1, 
+                         (64, 64, 64), "MSELoss", "Adam", 1, 
                          replayBuf, 128, device, 
-                         noisy=True, sigma_init=1.5, 
+                         noisy=True, sigma_init=2.0, 
                          dueling=True, 
                          epsilon_greedy=True)
     
@@ -98,6 +99,7 @@ def main():
 
     episodes = 50000
     reward_history = list()
+    reward_100history = deque(maxlen=100)
     clear_count = 0
     for episode in tqdm(range(episodes), ncols=100):
         done = False
@@ -140,11 +142,13 @@ def main():
         
         agent.param_step()
         reward_history.append(total_reward)
+        reward_100history.append(total_reward)
 
         # 良い経験であれば，重複して経験をバッファに追加(成功経験はエピソード長が短いため，バッファを上書きしにくい)
-        if len(episode_status) < 50:
+        if len(episode_status) < 0:
             write_count = int(200 / len(episode_status))
             for _ in range(write_count):
+                # tqdm.write("重複挿入")
                 for state, action, reward, next_state, done in zip(episode_status, episode_actions, episode_rewards, episode_next_status, episode_dones):
                     agent.add_buffer(state, action, reward, next_state, done)
 
@@ -152,16 +156,19 @@ def main():
             clear_count += 1
         else:
             clear_count = 0
+
+        ave_100_reward = sum(reward_100history) / len(reward_100history)
         
         tqdm.write(f"episode: {episode}, reward: {total_reward}")
         tqdm.write(f'episode len: {len(episode_status)}')
         tqdm.write(f'連続クリアカウント: {clear_count}')
+        tqdm.write(f'ave rewrad 100 history: {ave_100_reward}')
         tqdm.write(f'action history: {action_history}')
         tqdm.write(f'n step: {n_step}, gamma: {gamma.value}')
         tqdm.write(f'epsilon: {agent._epsilon.value}')
         tqdm.write('')
         
-        if clear_count >= 100:
+        if ave_100_reward >= clearScoreThreshold:
             print("clear")
             break
 
