@@ -292,7 +292,11 @@ class NstepReplayBuffer(ReplayBuffer):
             return *self._maker.get_sample(), True
         else:
             return None, None, None, None, None, False
-
+    
+    @property
+    def n_step(self):
+        return self._n_step
+    
 class PERBuffer(BaseReplayBuffer):
     def __init__(self, capacity: int, alpha: ScalarParam, beta: ScalarParam, 
                  state_size: int, action_size: int, reward_size: int=1, done_size: int=1, 

@@ -2,6 +2,7 @@
 import numpy as np
 from tqdm import tqdm
 from matplotlib import pyplot as plt
+from time import time
 
 import torch
 
@@ -19,10 +20,12 @@ def main():
 
     state_size, action_kinds, action_size, clearScoreThreshold = get_env_info(env)
 
+    gamma = 0.99
+    n_step = 3
     device =torch.device('cpu')
     # replayBuf = ReplayBuffer(20000, state_size, action_size, action_type=torch.int, device=device)
-    replayBuf = NstepReplayBuffer(20000, 3, makeConstant(0.99, device), state_size, action_size, action_type=torch.int, device=device)
-    agent = RainbowAgent(makeConstant(0.99, device), makeConstant(1e-4, device), makeConstant(5e-3, device), 
+    replayBuf = NstepReplayBuffer(20000, n_step, makeConstant(gamma, device), state_size, action_size, action_type=torch.int, device=device)
+    agent = RainbowAgent(makeConstant(gamma, device), makeConstant(1e-4, device), makeConstant(5e-3, device), 
                          state_size, action_size, action_kinds, 
                          (64, 64, 64), "MSELoss", "Adam", 1, 
                          replayBuf, 64, device, 
@@ -30,7 +33,7 @@ def main():
                          dueling=True)
     
     # あらかじめ適当な量バッファを埋めておく
-    bufinit_episodes = 100
+    bufinit_episodes = 1000
     for episode in tqdm(range(bufinit_episodes)):
         state, _ = env.reset()
         done = False
@@ -58,7 +61,11 @@ def main():
         total_reward = 0.0
         action_history = [0] * action_kinds
 
+        learn_time = 0.0
+        env_step_time = 0.0
+
         while not done:
+            start_time = time()
             # アクションを選択
             state_tensor = torch.tensor(state, dtype=torch.float, device=device).unsqueeze(0)
             action = agent.get_action(state_tensor)
@@ -71,12 +78,19 @@ def main():
             reward = np.array(reward, dtype=np.float32)
             done = np.array(truncated or terminated, dtype=np.int8)
 
+            lap1 = time()
+
             # エージェントを更新
             agent.update(state, action, reward, next_state, done)
+
+            lap2 = time()
 
             # 後処理
             total_reward += reward
             state = next_state
+
+            learn_time += lap2 - lap1
+            env_step_time += lap1 - start_time
         
         agent.param_step()
         reward_history.append(total_reward)
@@ -89,6 +103,9 @@ def main():
         tqdm.write(f"episode: {episode}, reward: {total_reward}")
         tqdm.write(f'連続クリアカウント: {clear_count}')
         tqdm.write(f'action history: {action_history}')
+        tqdm.write(f'n step: {n_step}, gamma: {gamma}')
+        tqdm.write(f'learn time: {learn_time}, env step time: {env_step_time}')
+        tqdm.write('')
         
         if clear_count >= 100:
             print("clear")

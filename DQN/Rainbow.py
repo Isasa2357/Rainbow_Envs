@@ -3,6 +3,8 @@
 import torch
 from torch import nn
 
+from gymnasium import Env 
+
 from typing import Tuple
 import numpy as np
 from numpy import ndarray
@@ -10,7 +12,7 @@ from numpy import ndarray
 from DQN.NoisyNet import NoisyNet, DuelingNoisyNet, NoisyNetInterface
 from DQN.Qnet import Qnetwork, BaseQnetwork
 # from ReplayBuffer.Buffer import ReplayBuffer
-from ReplayBuffer.Buffer_v2 import BaseReplayBuffer
+from ReplayBuffer.Buffer_v2 import BaseReplayBuffer, NstepReplayBuffer
 from usefulParam.Param import ScalarParam, makeConstant, makeMultiply
 from mutil_RL.mutil_torch import conv_str2Optimizer, conv_str2LossFunc, soft_update
 
@@ -27,13 +29,15 @@ class RainbowAgent:
                  lossF: str, optimizer: str, sync_interval: int,                                                  # q net learn function
                  replayBuf: BaseReplayBuffer, batch_size: int,                  # replay buffer
                  device: torch.device=torch.device('cpu'), 
-                 noisy: bool=True, sigma_init: float=0.5, epsilon: ScalarParam=makeMultiply(1.0, 0.998, 1e-4, 1.0, torch.device('cpu')), 
+                 noisy: bool=True, sigma_init: float=0.5, 
+                 epsilon_greedy: bool=True, epsilon: ScalarParam=makeMultiply(1.0, 0.998, 1e-4, 1.0, torch.device('cpu')), 
                  dueling: bool=True, ):
         self._device = device
 
         # condition
         self._noisy = noisy
         self._dueling = dueling
+        self._epsilon_greedy = epsilon_greedy
 
         # Hyper Parameter
         self._gamma = gamma
@@ -50,18 +54,14 @@ class RainbowAgent:
         self._q_net: BaseQnetwork
         self._target_q_net: BaseQnetwork
         if noisy and dueling:
-            print("noisy and dueling")
             self._q_net = DuelingNoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
             self._target_q_net = DuelingNoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
         elif noisy and not dueling:
-            print('noisy and not dueling')
             self._q_net = NoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
             self._target_q_net = NoisyNet(state_size, hdn_chnls, action_kinds, sigma_init).to(self._device)
         elif not noisy and dueling:
-            print('not noiosy and dueling')
             pass
         else:       # not noisy and not dueling
-            print('not noisy and not dueling')
             self._q_net = Qnetwork(state_size, hdn_chnls, action_kinds).to(self._device)
             self._target_q_net = Qnetwork(state_size, hdn_chnls, action_kinds).to(self._device)
 
@@ -92,7 +92,7 @@ class RainbowAgent:
             action[batch, action_size]: 行動
         '''
 
-        if not self._noisy:
+        if self._epsilon_greedy:
             if np.random.random() < self._epsilon.value:
                 return torch.tensor(np.random.choice(range(self._action_kinds)))
 
@@ -139,7 +139,12 @@ class RainbowAgent:
             self._q_net.eval()
             self._target_q_net.eval()
             next_actions = self._q_net.forward(next_status).argmax(dim=1)
-            q_val_target = rewards + (1 - dones) * self._gamma.tensor_value * self._target_q_net.forward(next_status)[np.arange(len(next_actions)), next_actions].unsqueeze(1)
+            n_step: int
+            if isinstance(self._replayBuf, NstepReplayBuffer):
+                n_step = self._replayBuf.n_step
+            else:
+                n_step = 1
+            q_val_target = (rewards + (1 - dones) * (self._gamma.tensor_value)**n_step * self._target_q_net.forward(next_status)[np.arange(len(next_actions)), next_actions].unsqueeze(1)) / n_step
 
         # ネットワークを更新
         # print(f'q val shape: {q_val.shape}, target shape: {q_val_target.shape}')
@@ -162,7 +167,7 @@ class RainbowAgent:
         '''
         if isinstance(self._q_net, NoisyNetInterface) and isinstance(self._target_q_net, NoisyNetInterface):
             self._q_net.noise_reset()
-            self._target_q_net.noise_reset()
+            # self._target_q_net.noise_reset()
         else:
             raise RuntimeError(f"q netがNoisy系でないのに，noise resetが呼ばれた")
         
@@ -171,3 +176,81 @@ class RainbowAgent:
         self._lr.step()
         self._tau.step()
         self._epsilon.step()
+    
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
+from tqdm import tqdm
+from tqdm.contrib.concurrent import process_map
+from mutil_RL.mutil_gym import get_env_info
+from copy import deepcopy
+
+def warmup_worker(env: Env):
+    done = False
+
+    state_size, action_kinds, action_size, _ = get_env_info(env)
+
+    observations = list()
+
+    state, _ = env.reset()
+    while not done:
+        action = np.random.choice(range(action_kinds))
+
+        next_state, reward, terminated, truncated, _ = env.step(action)
+        done = terminated or truncated
+
+        observation = [state, action, reward, next_state, done]
+
+        observations.append(observation)
+
+        state = next_state
+    return observations
+
+def get_observations(env: Env, episodes: int, processes: int=10):
+    observations = process_map(warmup_worker, [env] * episodes, max_workers=processes)
+    return observations
+
+def warmup_Rainbow(env: Env, agent: RainbowAgent, episodes: int, processes: int=10):
+    '''
+    Rainbowのウォームアップを行う
+    '''
+    print(f'random episodes')
+    episode_observations = get_observations(env, episodes, processes)
+
+    print(f'write to buffer')
+    status_lst = list()
+    actions_lst = list()
+    rewards_lst = list()
+    next_status_lst = list()
+    done_lst = list()
+    for episode_observation in tqdm(episode_observations, ncols=100):
+        for observation in episode_observation:
+            agent.add_buffer(*observation)
+
+def test_warmup_Rainbos():
+    import gymnasium as gym
+    import time
+    env = gym.make("LunarLander-v3")
+    gamma = 0.99
+    n_step = 3
+    state_size = 8
+    action_size = 4
+    action_kinds = 1
+    device =torch.device('cpu')
+    # replayBuf = ReplayBuffer(20000, state_size, action_size, action_type=torch.int, device=device)
+    replayBuf = NstepReplayBuffer(20000, n_step, makeConstant(gamma, device), state_size, action_size, action_type=torch.int, device=device)
+    agent = RainbowAgent(makeConstant(gamma, device), makeConstant(1e-4, device), makeConstant(5e-3, device), 
+                            state_size, action_size, action_kinds, 
+                            (64, 64, 64), "MSELoss", "Adam", 1, 
+                            replayBuf, 64, device, 
+                            noisy=True, sigma_init=0.3, epsilon=makeMultiply(1.0, 0.995, 1e-4, 1.0, device), 
+                            dueling=True)
+
+    
+    start = time.time()
+    warmup_Rainbow(env, agent, 1000, 10)
+    end = time.time()
+
+    print(end- start)
+    print(agent._replayBuf.real_size)
