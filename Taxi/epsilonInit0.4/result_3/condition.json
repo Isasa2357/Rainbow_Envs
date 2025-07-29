@@ -1,0 +1,32 @@
+{
+    "episodes": 10000,
+    "wormup_episodes": 200,
+    "wormup_workers": 10,
+    "gamma": 0.99,
+    "lr": 0.001,
+    "tau": 0.005,
+    "n_step": 1,
+    "hdn_lays": [
+        64,
+        64,
+        64
+    ],
+    "lossF": "MSELoss",
+    "optimizer": "Adam",
+    "sync_interval": 1,
+    "buf_capacity": 50000,
+    "batch_size": 128,
+    "device": "cpu",
+    "noisy": true,
+    "sigma_init": 2.0,
+    "dueling": true,
+    "epsilon_greedy": true,
+    "epsilon": [
+        1.0,
+        0.998,
+        0.0001,
+        1.0
+    ],
+    "project": "epsilonInit0.4",
+    "result": "result"
+}

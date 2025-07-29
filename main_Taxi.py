@@ -123,8 +123,8 @@ def main():
         'lossF': 'MSELoss', 
         'optimizer': 'Adam', 
         'sync_interval': 1, 
-        'buf_capacity': 30000, 
-        'batch_size': 128, 
+        'buf_capacity': 50000, 
+        'batch_size': 256, 
         'device': 'cpu', 
         'noisy': True, 
         'sigma_init': 2.0, 
@@ -138,7 +138,6 @@ def main():
     env = gym.make("Taxi-v3")
 
     state_size, action_kinds, action_size, clearScoreThreshold = get_env_info(env)
-    print(state_size, action_size, action_kinds, clearScoreThreshold)
 
     gamma = makeConstant(args['gamma'])
     lr = makeConstant(args['lr'])
@@ -152,7 +151,7 @@ def main():
                          replayBuf, args['batch_size'], device, 
                          noisy=args['noisy'], sigma_init=args['sigma_init'], 
                          dueling=args['dueling'], 
-                         epsilon_greedy=args['epsilon_greedy'], epsilon=makeMultiply(*args['epsilon']))
+                         epsilon_greedy=args['epsilon_greedy'], epsilon=makeMultiply(*args['epsilon'],  device=device))
     
     warmup_Rainbow(env, agent, args['wormup_episodes'], args['wormup_workers'])
 
@@ -160,6 +159,7 @@ def main():
     reward_history = list()
     reward_100history = deque(maxlen=100)
     clear_count = 0
+    step = 0
     for episode in tqdm(range(episodes), ncols=100):
         done = False
         state, _ = env.reset()
@@ -198,6 +198,8 @@ def main():
             episode_rewards.append(reward)
             episode_next_status.append(next_state)
             episode_dones.append(done)
+
+            step += 1
         
         agent.param_step()
         reward_history.append(float(total_reward))
@@ -211,6 +213,7 @@ def main():
         tqdm.write(f'action history: {action_history}')
         tqdm.write(f'n step: {n_step}, gamma: {gamma.value}')
         tqdm.write(f'epsilon: {agent._epsilon.value}')
+        tqdm.write(f'steps: {step}')
         tqdm.write('')
         
         if ave_100_reward >= clearScoreThreshold:
