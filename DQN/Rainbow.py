@@ -31,7 +31,7 @@ class RainbowAgent:
                  device: torch.device=torch.device('cpu'), 
                  noisy: bool=True, sigma_init: float=0.5, 
                  epsilon_greedy: bool=True, epsilon: ScalarParam=makeMultiply(1.0, 0.998, 1e-4, 1.0, torch.device('cpu')), 
-                 dueling: bool=True, ):
+                 dueling: bool=True):
         self._device = device
 
         # condition
@@ -180,6 +180,10 @@ class RainbowAgent:
     @property
     def device(self) -> torch.device:
         return self._device
+    
+    @property
+    def q_net_loss_history(self):
+        return self._q_net_loss_history
 
 from tqdm import tqdm
 from tqdm.contrib.concurrent import process_map

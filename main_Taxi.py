@@ -1,10 +1,12 @@
 
-from typing import Tuple
+from typing import Tuple, Dict, List
 
+import os
 import numpy as np
 from tqdm import tqdm
 from matplotlib import pyplot as plt
 from collections import deque
+import json
 
 import torch
 from torch.nn import functional as F
@@ -17,6 +19,7 @@ from mutil_RL.mutil_gym import get_env_info
 from ReplayBuffer.Buffer_v2 import ReplayBuffer, NstepReplayBuffer, PERBuffer, NstepPERBuffer
 from DQN.Rainbow import RainbowAgent, warmup_Rainbow
 from usefulParam.Param import makeConstant, makeMultiply
+from mutil_common.mutil_common import resolve_conflict_filename
 
 def decode_taxi_state(state):
     destination = state % 4
@@ -74,30 +77,86 @@ def conv_reward(state_value: int, reward_value: float) -> float:
     else:
         return -1 + distance_pssanger2taxi((taxi_row, taxi_col), passenger) / 32**0.5
 
+def makeResult(args: Dict, reward_history: List, q_loss_history: List):
+    taxi_resultFolder = 'Taxi'
+    project_path = os.path.join(taxi_resultFolder, args['project'])
+    resultFolder = resolve_conflict_filename(args['result'], project_path)
+    resultFolder_path = os.path.join(project_path, resultFolder)
+
+    os.makedirs(taxi_resultFolder, exist_ok=True)
+    os.makedirs(project_path, exist_ok=True)
+    os.mkdir(resultFolder_path)
+
+    # 条件を記録
+    with open(os.path.join(resultFolder_path, 'condition.json'), 'w') as cj:
+        json.dump(args, cj, indent=4)
+    
+    # 報酬の推移を記録
+    with open(os.path.join(resultFolder_path, 'reward_history.txt'), 'w') as f:
+        for reward in reward_history:
+            f.write(str(reward))
+            f.write('\n')
+    plt.plot(reward_history)
+    plt.savefig(os.path.join(resultFolder_path, 'reward_history.png'))
+    plt.clf()
+
+    # 損失の推移を記録
+    with open(os.path.join(resultFolder_path, 'qLoss_history.txt'), 'w') as qlhf:
+        for loss in q_loss_history:
+            qlhf.write(str(loss))
+            qlhf.write('\n')
+    plt.plot(q_loss_history)
+    plt.savefig(os.path.join(resultFolder_path, 'qLoss_history.png'))
+    plt.clf()
+
 
 def main():
+    args = {
+        'episodes': 10000, 
+        'wormup_episodes': 200, 
+        'wormup_workers': 10, 
+        'gamma': 0.99, 
+        'lr': 1e-3, 
+        'tau': 5e-3, 
+        'n_step': 1, 
+        'hdn_lays': (64, 64, 64), 
+        'lossF': 'MSELoss', 
+        'optimizer': 'Adam', 
+        'sync_interval': 1, 
+        'buf_capacity': 30000, 
+        'batch_size': 128, 
+        'device': 'cpu', 
+        'noisy': True, 
+        'sigma_init': 2.0, 
+        'dueling': True, 
+        'epsilon_greedy': True, 
+        'epsilon': (1.0, 0.998, 1e-4, 1.0), 
+        'project': 'epsilonInit0.4', 
+        'result': 'result'
+    }
+
     env = gym.make("Taxi-v3")
 
     state_size, action_kinds, action_size, clearScoreThreshold = get_env_info(env)
     print(state_size, action_size, action_kinds, clearScoreThreshold)
 
-    gamma = makeConstant(0.99)
-    lr = makeConstant(1e-3)
-    tau = makeConstant(1e-2)
-    device = torch.device('cpu')
-    n_step = 1
-    replayBuf = ReplayBuffer(50000, 19, action_size, action_type=torch.int, device=device)
+    gamma = makeConstant(args['gamma'])
+    lr = makeConstant(args['lr'])
+    tau = makeConstant(args['tau'])
+    device = torch.device(args['device'])
+    n_step = args['n_step']
+    replayBuf = ReplayBuffer(args['buf_capacity'], 19, action_size, action_type=torch.int, device=device)
     agent = RainbowAgent(gamma, lr, tau, 
                          19, action_size, action_kinds, 
-                         (64, 64, 64), "MSELoss", "Adam", 1, 
-                         replayBuf, 128, device, 
-                         noisy=True, sigma_init=2.0, 
-                         dueling=True, 
-                         epsilon_greedy=True)
+                         args['hdn_lays'], args['lossF'], args['optimizer'], args['sync_interval'], 
+                         replayBuf, args['batch_size'], device, 
+                         noisy=args['noisy'], sigma_init=args['sigma_init'], 
+                         dueling=args['dueling'], 
+                         epsilon_greedy=args['epsilon_greedy'], epsilon=makeMultiply(*args['epsilon']))
     
-    warmup_Rainbow(env, agent, 200, 10)
+    warmup_Rainbow(env, agent, args['wormup_episodes'], args['wormup_workers'])
 
-    episodes = 50000
+    episodes = args['episodes']
     reward_history = list()
     reward_100history = deque(maxlen=100)
     clear_count = 0
@@ -141,27 +200,13 @@ def main():
             episode_dones.append(done)
         
         agent.param_step()
-        reward_history.append(total_reward)
+        reward_history.append(float(total_reward))
         reward_100history.append(total_reward)
-
-        # 良い経験であれば，重複して経験をバッファに追加(成功経験はエピソード長が短いため，バッファを上書きしにくい)
-        if len(episode_status) < 0:
-            write_count = int(200 / len(episode_status))
-            for _ in range(write_count):
-                # tqdm.write("重複挿入")
-                for state, action, reward, next_state, done in zip(episode_status, episode_actions, episode_rewards, episode_next_status, episode_dones):
-                    agent.add_buffer(state, action, reward, next_state, done)
-
-        if total_reward >= clearScoreThreshold:
-            clear_count += 1
-        else:
-            clear_count = 0
 
         ave_100_reward = sum(reward_100history) / len(reward_100history)
         
         tqdm.write(f"episode: {episode}, reward: {total_reward}")
         tqdm.write(f'episode len: {len(episode_status)}')
-        tqdm.write(f'連続クリアカウント: {clear_count}')
         tqdm.write(f'ave rewrad 100 history: {ave_100_reward}')
         tqdm.write(f'action history: {action_history}')
         tqdm.write(f'n step: {n_step}, gamma: {gamma.value}')
@@ -172,8 +217,9 @@ def main():
             print("clear")
             break
 
-    plt.plot(reward_history)
-    plt.show()   
+    makeResult(args, reward_history, agent.q_net_loss_history)
+
+
     
 
 if __name__ == '__main__':
